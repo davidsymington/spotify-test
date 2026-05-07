@@ -1,8 +1,8 @@
 export default async function handler(req, res) {
   try {
     const artist = req.query.artist || "Taylor Swift";
+    const debug = req.query.debug === "true";
 
-    // STEP 1: Get Spotify access token
     const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
@@ -18,11 +18,8 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
 
-    // STEP 2: Search for artist
     const searchRes = await fetch(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(
-        artist
-      )}&type=artist&limit=1`,
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=1`,
       {
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
@@ -31,20 +28,18 @@ export default async function handler(req, res) {
     );
 
     const searchData = await searchRes.json();
-    const searchResult = searchData.artists.items[0];
+    const searchResult = searchData.artists?.items?.[0];
 
     if (!searchResult) {
       return res.status(404).json({
         success: false,
         error: "Artist not found",
+        rawSearchData: debug ? searchData : undefined,
       });
     }
 
-    const artistId = searchResult.id;
-
-    // STEP 3: Fetch full artist details by Spotify ID
     const fullArtistRes = await fetch(
-      `https://api.spotify.com/v1/artists/${artistId}`,
+      `https://api.spotify.com/v1/artists/${searchResult.id}`,
       {
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
@@ -54,38 +49,40 @@ export default async function handler(req, res) {
 
     const fullArtist = await fullArtistRes.json();
 
-    // STEP 4: Return clean custom response
+    if (debug) {
+      return res.status(200).json({
+        success: true,
+        debug: true,
+        searchResult,
+        fullArtist,
+      });
+    }
+
     res.status(200).json({
       success: true,
-
       search: {
         searchedArtist: artist,
         matchedArtist: fullArtist.name,
       },
-
       spotify: {
         id: fullArtist.id,
         uri: fullArtist.uri,
         url: fullArtist.external_urls?.spotify || null,
       },
-
       profile: {
         name: fullArtist.name,
         type: fullArtist.type,
         genres: fullArtist.genres || [],
         popularity: fullArtist.popularity ?? null,
       },
-
       followers: {
         total: fullArtist.followers?.total ?? null,
       },
-
       images: {
         large: fullArtist.images?.[0]?.url || null,
         medium: fullArtist.images?.[1]?.url || null,
         small: fullArtist.images?.[2]?.url || null,
       },
-
       stats: {
         spotifyPopularityScore: fullArtist.popularity ?? null,
         followerCount: fullArtist.followers?.total ?? null,
