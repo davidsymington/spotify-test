@@ -2,6 +2,7 @@ export default async function handler(req, res) {
   try {
     const artist = req.query.artist || "Taylor Swift";
 
+    // STEP 1: Get Spotify access token
     const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
 
+    // STEP 2: Search Spotify
     const artistRes = await fetch(
       `https://api.spotify.com/v1/search?q=${encodeURIComponent(
         artist
@@ -30,16 +32,9 @@ export default async function handler(req, res) {
 
     const artistData = await artistRes.json();
 
-  const artistInfo = artistData.artists.items[0];
+    // STEP 3: Return EVERYTHING
+    res.status(200).json(artistData);
 
-res.status(200).json({
-  success: true,
-  artist: artistInfo.name,
-  followers: artistInfo.followers.total,
-  popularity: artistInfo.popularity,
-  image: artistInfo.images[0]?.url,
-  spotifyUrl: artistInfo.external_urls.spotify,
-});
   } catch (err) {
     res.status(500).json({
       success: false,
