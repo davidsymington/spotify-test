@@ -2,6 +2,7 @@ export default async function handler(req, res) {
   try {
     const artist = req.query.artist || "Taylor Swift";
 
+    // STEP 1: Get Spotify access token
     const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
@@ -17,7 +18,8 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
 
-    const artistRes = await fetch(
+    // STEP 2: Search for artist
+    const searchRes = await fetch(
       `https://api.spotify.com/v1/search?q=${encodeURIComponent(
         artist
       )}&type=artist&limit=1`,
@@ -28,53 +30,67 @@ export default async function handler(req, res) {
       }
     );
 
-    const artistData = await artistRes.json();
-    const artistInfo = artistData.artists.items[0];
+    const searchData = await searchRes.json();
+    const searchResult = searchData.artists.items[0];
 
-    if (!artistInfo) {
+    if (!searchResult) {
       return res.status(404).json({
         success: false,
         error: "Artist not found",
       });
     }
 
-    const customResponse = {
+    const artistId = searchResult.id;
+
+    // STEP 3: Fetch full artist details by Spotify ID
+    const fullArtistRes = await fetch(
+      `https://api.spotify.com/v1/artists/${artistId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+      }
+    );
+
+    const fullArtist = await fullArtistRes.json();
+
+    // STEP 4: Return clean custom response
+    res.status(200).json({
       success: true,
 
       search: {
         searchedArtist: artist,
+        matchedArtist: fullArtist.name,
       },
 
       spotify: {
-        id: artistInfo.id,
-        uri: artistInfo.uri,
-        url: artistInfo.external_urls?.spotify || null,
+        id: fullArtist.id,
+        uri: fullArtist.uri,
+        url: fullArtist.external_urls?.spotify || null,
       },
 
       profile: {
-        name: artistInfo.name,
-        type: artistInfo.type,
-        genres: artistInfo.genres || [],
-        popularity: artistInfo.popularity ?? null,
+        name: fullArtist.name,
+        type: fullArtist.type,
+        genres: fullArtist.genres || [],
+        popularity: fullArtist.popularity ?? null,
       },
 
       followers: {
-        total: artistInfo.followers?.total ?? null,
+        total: fullArtist.followers?.total ?? null,
       },
 
       images: {
-        large: artistInfo.images?.[0]?.url || null,
-        medium: artistInfo.images?.[1]?.url || null,
-        small: artistInfo.images?.[2]?.url || null,
+        large: fullArtist.images?.[0]?.url || null,
+        medium: fullArtist.images?.[1]?.url || null,
+        small: fullArtist.images?.[2]?.url || null,
       },
 
       stats: {
-        spotifyPopularityScore: artistInfo.popularity ?? null,
-        followerCount: artistInfo.followers?.total ?? null,
+        spotifyPopularityScore: fullArtist.popularity ?? null,
+        followerCount: fullArtist.followers?.total ?? null,
       },
-    };
-
-    res.status(200).json(customResponse);
+    });
   } catch (err) {
     res.status(500).json({
       success: false,
