@@ -1,5 +1,6 @@
 export default async function handler(req, res) {
   try {
+    // Get artist from URL query
     const artist = req.query.artist || "Taylor Swift";
 
     // STEP 1: Get Spotify access token
@@ -32,8 +33,56 @@ export default async function handler(req, res) {
 
     const artistData = await artistRes.json();
 
-    // STEP 3: Return EVERYTHING
-    res.status(200).json(artistData);
+    // STEP 3: Extract artist
+    const artistInfo = artistData.artists.items[0];
+
+    // STEP 4: Handle no results
+    if (!artistInfo) {
+      return res.status(404).json({
+        success: false,
+        error: "Artist not found",
+      });
+    }
+
+    // STEP 5: Custom response format
+    const customResponse = {
+      success: true,
+
+      search: {
+        searchedArtist: artist,
+      },
+
+      spotify: {
+        id: artistInfo.id,
+        uri: artistInfo.uri,
+        url: artistInfo.external_urls.spotify,
+      },
+
+      profile: {
+        name: artistInfo.name,
+        type: artistInfo.type,
+        genres: artistInfo.genres,
+        popularity: artistInfo.popularity,
+      },
+
+      followers: {
+        total: artistInfo.followers.total,
+      },
+
+      images: {
+        large: artistInfo.images[0]?.url || null,
+        medium: artistInfo.images[1]?.url || null,
+        small: artistInfo.images[2]?.url || null,
+      },
+
+      stats: {
+        spotifyPopularityScore: artistInfo.popularity,
+        followerCount: artistInfo.followers.total,
+      },
+    };
+
+    // STEP 6: Return cleaned response
+    res.status(200).json(customResponse);
 
   } catch (err) {
     res.status(500).json({
