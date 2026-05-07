@@ -1,7 +1,6 @@
 export default async function handler(req, res) {
   try {
-    const artist = req.query.artist || "Taylor Swift";
-    const debug = req.query.debug === "true";
+    const artist = req.query.artist || "Metallica";
 
     const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
@@ -18,75 +17,136 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
 
-    const searchRes = await fetch(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=1`,
-      {
+    const spotifyFetch = async (url) => {
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
         },
-      }
+      });
+      return response.json();
+    };
+
+    const searchData = await spotifyFetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(
+        artist
+      )}&type=artist&limit=1`
     );
 
-    const searchData = await searchRes.json();
-    const searchResult = searchData.artists?.items?.[0];
+    const artistMatch = searchData.artists?.items?.[0];
 
-    if (!searchResult) {
+    if (!artistMatch) {
       return res.status(404).json({
         success: false,
         error: "Artist not found",
-        rawSearchData: debug ? searchData : undefined,
+        searchedArtist: artist,
       });
     }
 
-    const fullArtistRes = await fetch(
-      `https://api.spotify.com/v1/artists/${searchResult.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-        },
-      }
+    const artistId = artistMatch.id;
+
+    const artistProfile = await spotifyFetch(
+      `https://api.spotify.com/v1/artists/${artistId}`
     );
 
-    const fullArtist = await fullArtistRes.json();
+    const artistAlbums = await spotifyFetch(
+      `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on,compilation&limit=10`
+    );
 
-    if (debug) {
-      return res.status(200).json({
-        success: true,
-        debug: true,
-        searchResult,
-        fullArtist,
-      });
+    const topTracks = await spotifyFetch(
+      `https://api.spotify.com/v1/artists/${artistId}/top-tracks`
+    );
+
+    const firstAlbumId = artistAlbums.items?.[0]?.id;
+
+    let firstAlbumTracks = null;
+
+    if (firstAlbumId) {
+      firstAlbumTracks = await spotifyFetch(
+        `https://api.spotify.com/v1/albums/${firstAlbumId}/tracks?limit=20`
+      );
     }
 
     res.status(200).json({
       success: true,
-      search: {
-        searchedArtist: artist,
-        matchedArtist: fullArtist.name,
+      searchedArtist: artist,
+
+      artist: {
+        id: artistProfile.id,
+        name: artistProfile.name,
+        type: artistProfile.type,
+        uri: artistProfile.uri,
+        spotifyUrl: artistProfile.external_urls?.spotify || null,
+        images: artistProfile.images || [],
+        genres: artistProfile.genres || [],
+        raw: artistProfile,
       },
-      spotify: {
-        id: fullArtist.id,
-        uri: fullArtist.uri,
-        url: fullArtist.external_urls?.spotify || null,
+
+      albums: {
+        totalReturned: artistAlbums.items?.length || 0,
+        items:
+          artistAlbums.items?.map((album) => ({
+            id: album.id,
+            name: album.name,
+            type: album.album_type,
+            releaseDate: album.release_date,
+            totalTracks: album.total_tracks,
+            spotifyUrl: album.external_urls?.spotify || null,
+            images: album.images || [],
+            raw: album,
+          })) || [],
       },
-      profile: {
-        name: fullArtist.name,
-        type: fullArtist.type,
-        genres: fullArtist.genres || [],
-        popularity: fullArtist.popularity ?? null,
+
+      topTracks: {
+        totalReturned: topTracks.tracks?.length || 0,
+        items:
+          topTracks.tracks?.map((track) => ({
+            id: track.id,
+            name: track.name,
+            durationMs: track.duration_ms,
+            explicit: track.explicit,
+            spotifyUrl: track.external_urls?.spotify || null,
+            previewUrl: track.preview_url || null,
+            album: {
+              id: track.album?.id,
+              name: track.album?.name,
+              releaseDate: track.album?.release_date,
+              images: track.album?.images || [],
+            },
+            artists:
+              track.artists?.map((a) => ({
+                id: a.id,
+                name: a.name,
+                spotifyUrl: a.external_urls?.spotify || null,
+              })) || [],
+            externalIds: track.external_ids || {},
+            raw: track,
+          })) || [],
       },
-      followers: {
-        total: fullArtist.followers?.total ?? null,
-      },
-      images: {
-        large: fullArtist.images?.[0]?.url || null,
-        medium: fullArtist.images?.[1]?.url || null,
-        small: fullArtist.images?.[2]?.url || null,
-      },
-      stats: {
-        spotifyPopularityScore: fullArtist.popularity ?? null,
-        followerCount: fullArtist.followers?.total ?? null,
-      },
+
+      firstAlbumTracks: firstAlbumTracks
+        ? {
+            albumId: firstAlbumId,
+            totalReturned: firstAlbumTracks.items?.length || 0,
+            items:
+              firstAlbumTracks.items?.map((track) => ({
+                id: track.id,
+                name: track.name,
+                durationMs: track.duration_ms,
+                explicit: track.explicit,
+                trackNumber: track.track_number,
+                discNumber: track.disc_number,
+                spotifyUrl: track.external_urls?.spotify || null,
+                previewUrl: track.preview_url || null,
+                artists:
+                  track.artists?.map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    spotifyUrl: a.external_urls?.spotify || null,
+                  })) || [],
+                raw: track,
+              })) || [],
+          }
+        : null,
     });
   } catch (err) {
     res.status(500).json({
