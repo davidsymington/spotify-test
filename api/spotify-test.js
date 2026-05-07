@@ -30,11 +30,16 @@ export default async function handler(req, res) {
 
     const artistData = await artistRes.json();
 
-    res.status(200).json({
-      success: true,
-      searchedFor: artist,
-      artist: artistData.artists.items[0],
-    });
+  const artistInfo = artistData.artists.items[0];
+
+res.status(200).json({
+  success: true,
+  artist: artistInfo.name,
+  followers: artistInfo.followers.total,
+  popularity: artistInfo.popularity,
+  image: artistInfo.images[0]?.url,
+  spotifyUrl: artistInfo.external_urls.spotify,
+});
   } catch (err) {
     res.status(500).json({
       success: false,
