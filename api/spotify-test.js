@@ -1,7 +1,17 @@
 export default async function handler(req, res) {
+  // CORS headers so theticketoracle.com can call this API
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
     const artist = req.query.artist || "Metallica";
 
+    // STEP 1: Get Spotify access token
     const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
       headers: {
@@ -17,15 +27,33 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
 
+    if (!tokenRes.ok) {
+      return res.status(tokenRes.status).json({
+        success: false,
+        error: "Failed to get Spotify access token",
+        details: tokenData,
+      });
+    }
+
     const spotifyFetch = async (url) => {
       const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
         },
       });
-      return response.json();
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Spotify API error: ${response.status} ${JSON.stringify(data)}`
+        );
+      }
+
+      return data;
     };
 
+    // STEP 2: Search artist
     const searchData = await spotifyFetch(
       `https://api.spotify.com/v1/search?q=${encodeURIComponent(
         artist
@@ -44,29 +72,42 @@ export default async function handler(req, res) {
 
     const artistId = artistMatch.id;
 
+    // STEP 3: Get artist profile
     const artistProfile = await spotifyFetch(
       `https://api.spotify.com/v1/artists/${artistId}`
     );
 
+    // STEP 4: Get albums/releases
     const artistAlbums = await spotifyFetch(
       `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on,compilation&limit=10`
     );
 
-    const topTracks = await spotifyFetch(
-      `https://api.spotify.com/v1/artists/${artistId}/top-tracks`
-    );
+    // STEP 5: Try top tracks. This may return empty due to Spotify API changes.
+    let topTracks = { tracks: [] };
 
+    try {
+      topTracks = await spotifyFetch(
+        `https://api.spotify.com/v1/artists/${artistId}/top-tracks`
+      );
+    } catch (topTracksError) {
+      topTracks = {
+        tracks: [],
+        error: topTracksError.message,
+      };
+    }
+
+    // STEP 6: Get tracks from first returned album
     const firstAlbumId = artistAlbums.items?.[0]?.id;
-
     let firstAlbumTracks = null;
 
     if (firstAlbumId) {
       firstAlbumTracks = await spotifyFetch(
-        `https://api.spotify.com/v1/albums/${firstAlbumId}/tracks?limit=20`
+        `https://api.spotify.com/v1/albums/${firstAlbumId}/tracks?limit=50`
       );
     }
 
-    res.status(200).json({
+    // STEP 7: Return structured response
+    return res.status(200).json({
       success: true,
       searchedArtist: artist,
 
@@ -98,6 +139,7 @@ export default async function handler(req, res) {
 
       topTracks: {
         totalReturned: topTracks.tracks?.length || 0,
+        error: topTracks.error || null,
         items:
           topTracks.tracks?.map((track) => ({
             id: track.id,
@@ -149,7 +191,7 @@ export default async function handler(req, res) {
         : null,
     });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: err.message,
     });
